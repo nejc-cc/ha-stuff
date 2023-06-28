@@ -1,0 +1,178 @@
+esphome:
+  name: scrollydelavnica
+  platform: ESP8266
+  board: esp12e
+
+wifi:
+  power_save_mode: none
+  networks:
+  - ssid: !secret primarywifigen
+    password: !secret primarywifigenpass
+
+# Enable logging
+logger:
+  logs:
+    sensor: NONE
+#  baud_rate: 0
+#  level: very_verbose
+
+web_server:
+  port: 80
+  auth:
+    username: !secret webuser
+    password: !secret webpass
+
+ota:
+  password: !secret otapass
+
+api:
+  services:
+    - service: play_rtttl
+      variables:
+        song_str: string
+      then:
+        - rtttl.play:
+            rtttl: !lambda 'return song_str;'
+
+spi:
+  - clk_pin: 14
+    mosi_pin: 13
+    id: spitop
+#  - clk_pin: 4
+#    mosi_pin: 5
+#    id: spibot
+
+font:
+  - file: "pixelmix.ttf"
+    id: normal
+    size: 8
+    glyphs: "&!%()’`'+,-_.#;:<>=/[]°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcčdefghijklmnopqrsštuvwxyzž"
+
+image:
+  - file: "urca.png"
+    id: urca
+  - file: "koledar_w.png"
+    id: koledar
+  - file: "up.png"
+    id: up
+  - file: "down.png"
+    id: down
+
+time:
+  - platform: homeassistant
+    id: sntp_time
+
+globals:
+   - id: showtime
+     type: bool
+     restore_value: no
+     initial_value: 'true'
+   - id: vrata
+     type: bool
+     restore_value: no
+     initial_value: 'false'
+   - id: showtekst
+     type: bool
+     restore_value: no
+     initial_value: 'false'
+   - id: intensity
+     type: int
+     restore_value: no
+     initial_value: '1'
+
+interval:
+   - interval: 30s
+     then:
+       - lambda: |-
+           id(showtime) = false;
+       - delay: 3s
+       - lambda: |-
+           id(showtime) = true;
+   - interval: 500ms
+     then:
+       - lambda: |-
+           if (id(vrata)) {
+             id(vrata) = false;
+           }
+           else {
+             id(vrata) = true;
+           }
+
+display:
+  - platform: max7219digit
+    cs_pin: 4
+    spi_id: spitop
+    num_chips: 8
+    lambda: |-
+      auto time = id(sntp_time).now();
+      it.intensity(id(intensity));
+      if (time.is_valid()){
+        if (id(scrollydelavnicatext).state.length() >= 1) {
+          if ((id(scrollydelavnicatext).state.compare("vratagor")) == 0) {
+            it.print(12,-1, id(normal), "ODPIRAM");
+            if (id(vrata)) {
+              it.image(0, 0, id(up));
+              it.image(55, 0, id(up));
+              it.intensity(15);
+            }
+          } else if ((id(scrollydelavnicatext).state.compare("vratadol")) == 0) {
+            it.print(12,-1, id(normal), "ZAPIRAM");
+            if (id(vrata)) {
+              it.image(0, 0, id(down));
+              it.image(55, 0, id(down));
+              it.intensity(15);
+            }
+          } else {
+            it.printf(0,0, id(normal), id(scrollydelavnicatext).state.c_str());
+          }
+        }
+        else if (id(showtime)) {
+          it.strftime(6, -1, id(normal), "%H:%M:%S", id(sntp_time).now());
+          it.image(50, 0, id(urca));
+        } else {
+          it.strftime(3, -1, id(normal), "%d.%m. T:%W", id(sntp_time).now());
+        }
+      }
+      else {
+        it.print(0,0, id(normal), "Povezovanje");
+      }
+
+sensor:
+  - platform: uptime
+    name: "Scrolly delavnica uptime"
+  - platform: wifi_signal
+    name: "Scrolly delavnica WiFi signal"
+    update_interval: 10s
+
+number:
+  - platform: template
+    name: "Intensity"
+    id: svetlost
+    # optimistic: true
+    min_value: 1
+    max_value: 15
+    step: 1
+    mode: slider
+    set_action:
+     then:
+      - lambda: |-
+          id(intensity) = x;
+
+output:
+  - platform: esp8266_pwm
+    pin: GPIO05
+    id: rtttl_out
+
+rtttl:
+  output: rtttl_out
+
+text_sensor:
+  - platform: homeassistant
+    name: "HASS text"
+    id: scrollydelavnicatext
+    entity_id: input_text.scrollydelavnicatext
+    internal: true
+
+button:
+  - platform: restart
+    name: "Resetiraj scrolly delavnica"
