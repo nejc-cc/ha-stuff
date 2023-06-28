@@ -1,2 +1,2 @@
 # ha-stuff
-ha-stuff
+Random HA code snippets
