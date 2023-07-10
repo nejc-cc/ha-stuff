@@ -1,0 +1,98 @@
+esphome:
+  name: jeklenka
+  platform: ESP8266
+  board: esp01_1m
+
+wifi:
+  networks:
+  - ssid: !secret primarywifi
+    password: !secret primarywifipass
+  manual_ip:
+    static_ip: !secret ip_jeklenka
+    gateway: !secret gateway
+    subnet: !secret subnet
+
+logger:
+  baud_rate: 0
+  
+status_led:
+  pin:
+    number: GPIO1
+    inverted: true
+
+ota:
+  password: !secret otapass
+
+api:
+
+web_server:
+  port: 80
+
+sensor:
+  - platform: hx711
+    name: "Jeklenka masa raw" #raw weight from HX711 module, you must do initial calibration by yourself first
+    id: masa_raw
+    dout_pin: GPIO0
+    clk_pin: GPIO2
+    gain: 64
+    update_interval: 20s
+    filters:
+      - calibrate_linear:
+           - 99632 -> 0
+           - 82766 -> 1.591
+      - filter_out: -144
+    unit_of_measurement: kg
+  - platform: wifi_signal
+    name: "Jeklenka load cell RSSI" #WiFi signal
+    update_interval: 60s
+  - platform: uptime
+    name: "Jeklenka load cell uptime" 
+  - platform: homeassistant
+    id: tara
+    entity_id: input_number.jeklenka_tara
+    internal: true
+  - platform: homeassistant # extra mass (gas regulator, hose...)
+    id: dodatna_masa
+    entity_id: input_number.jeklenka_dodatek
+    internal: true
+  - platform: homeassistant # how much gas should be in the bottle when it's new
+    id: plin
+    entity_id: input_number.jeklenka_plin
+    internal: true
+  - platform: template # mass of empty bottle (printed on bottle)
+    id: masakg
+    icon: mdi:gas-cylinder
+    name: "Količina plina (kg)"
+    lambda: |-
+      return (id(masa_raw).state - id(tara).state - id(dodatna_masa).state);
+    update_interval: 20s
+    unit_of_measurement: kg
+  - platform: template # calculate percents of gas left in bottle
+    id: masaprocfent
+    icon: mdi:gas-cylinder
+    name: "Količina plina (procent)"
+    lambda: |-
+      return ((id(masakg).state/id(plin).state)*100);
+    update_interval: 20s
+    unit_of_measurement: '%'
+    
+binary_sensor:
+  - platform: status
+    name: "Jeklenka load cell status"
+
+button:
+  - platform: restart
+    name: "Jeklenka load cell restart"
+  - platform: template # auto-tare button for 10kg gas bottles
+    name: "Nova jeklenka auto tare"
+    on_press:
+      - homeassistant.service:
+          service: input_number.set_value
+          data:
+            entity_id: input_number.jeklenka_plin
+            value: "10.0"
+      - homeassistant.service:
+          service: input_number.set_value
+          data:
+            entity_id: input_number.jeklenka_tara
+            value: !lambda return (id(masa_raw).state - 10.0 - id(dodatna_masa).state);
